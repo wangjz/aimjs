@@ -1,0 +1,13 @@
+<style a-only>
+button {color: red;}
+</style>
+<input type="text" a-id=".input"/>
+<button a-id="btn">添加</button>
+<div>
+@for#.todoNodes(i in 0...list.length){
+	<div row="todo"><span><li>@i:@{list[i].name} @list[i].thing</li><a href="javascript:void(0);" a-onclick="@onDel">删除</a><input type="text" value="@list[i].name" /><a href="javascript:void(0);" a-onclick="onModify">修改</a></span></div>
+}
+</div>
+@{
+btn.onclick=onAdd;
+}

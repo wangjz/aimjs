@@ -1,0 +1,43 @@
+@{name} world
+%class%
+  <div>
+	  <button a-id="btn" id="btn">hello btn</button>
+  </div>
+@{
+	var f=function(i)
+	{
+		if(i%2==0)return "偶数";
+		return "奇数";
+	}
+}
+<div>
+@for#.li_list(i in list){
+<li>@i : @f(i)</li><a href="#">@i</a>
+}
+</div>
+
+<div a-id="test" id="%class%1" name="name:@{name}@{'hello'} jjjj;@{name.length>=2?'大于等于2':'小于2'}"></div>
+<test:todo></test:todo>
+<p>
+	<test:todo></test:todo>
+</p>
+@{
+	var i=0;
+	btn.onclick=function(){
+		i=i+1;
+		name=Std.string(i);
+		//list[i+2]=i;
+		//trace(list);
+		//list=[i,i+1];
+		list.push(i);
+		//list.push(i+1);
+		//list.reverse();
+		//list.shift();
+		//list.unshift(i);
+		window.console.log(test.getAttribute("name"));
+		this.unattach();
+		window.setTimeout(function(){
+			attach(document.body);
+		}, 3000);
+	}
+}

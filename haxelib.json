@@ -1,0 +1,14 @@
+{
+  "name": "aimjs",
+  "license": "BSD",
+  "classPath": "src",
+  "tags": ["js","tag","component","template"],
+  "description": "",
+  "contributors": ["wangjz"],
+  "releasenote": "first publish",
+  "version": "0.0.1",
+  "url": "",
+  "dependencies": {
+    "HtmlParser": ""
+  }
+}
