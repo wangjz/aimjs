@@ -1,5 +1,4 @@
 #if macro
-import haxe.Utf8;
 import htmlparser.HtmlParser;
 import htmlparser.HtmlNodeElement;
 import htmlparser.HtmlNodeText;
@@ -16,9 +15,13 @@ import aimjs.parser.TBlock;
 class ViewMacro
 {
 	private static var variableChar : EReg = ~/^[_A-Za-z0-9\.\[\]]+$/;
+	static var preConExpr:EReg = ~/con=[_A-Za-z0-9\.]+;con=[_A-Za-z0-9\.]+;/;
+	static var reConExpr:EReg = ~/con=[_A-Za-z0-9\.]+;/;
 	static var codeStack:Array<String>;
+	static var arrayStack:Array<{exp:String,indexName:String,indexVar:String,fn:String,bindSource:String,indexed:Bool,isClsBindVar:Bool,bindVar:String,id:Int}>;
 	public macro static function build(path:String): Array<Field>{
 		codeStack = [];
+		arrayStack = [];
 		var v = generateClass(path);
 		var fields = Context.getBuildFields();
 		fields.push({
@@ -27,10 +30,19 @@ class ViewMacro
 			kind:FieldType.FFun(v),
 			pos:Context.currentPos()
 		});
+		var func = macro function localClassName(){
+			return $v{Context.getLocalClass().toString()};
+		}
+		switch($v{func}.expr)
+		{
+			case ExprDef.EFunction(n, f):
+				fields.push({name:"localClassName",access:[APublic,AInline,AStatic], kind:FieldType.FFun(f), pos:Context.currentPos()});
+				default:
+		}
 		return fields;
 	}
 	
-	static function getFieldPathInfo(path:String):{path:String,scope:String,field:String}
+	static function getFieldPathInfo(path:String):{scope:String,field:String,localScope:String,chains:String}
 	{
 		var name = path;
 		var isThis = path.indexOf("this.") == 0;
@@ -43,13 +55,31 @@ class ViewMacro
 			scope = name.substring(0, lstDot);
 			name=name.substring(lstDot+1);
 		}
-		return {path:path, scope:scope, field:name};
+		var localScope = scope;
+		if (localScope == "this"){
+			localScope = "";
+		}
+		
+		var chains = "null";
+		if (localScope.length > 0){
+			var paths = localScope.split(".");
+			if (paths.length >1){
+				chains = "[";
+				for (i in 0...paths.length-1)
+				{
+					chains += (i == 0?"":",") +paths.slice(0, i + 1).join(".");
+				}
+				chains += "]";
+			}
+		}
+		return {scope:scope, field:name,localScope:localScope,chains:chains};
 	}
 	
 	static function parseAttributeExpr(codeBlocks:Array<TBlock>,expr:String,token:String,pos:Int=0):{v:String, isCode:Bool, binds:Array<String>}
 	{
-		if (expr.length==0||StringTools.trim(expr).length==0) return {v:expr, isCode:false, binds:null};
-		var codeLeftInx = expr.indexOf("<" + token+">");
+		if (expr.length == 0 || StringTools.trim(expr).length == 0) return {v:expr, isCode:false, binds:null};
+		var startTag = "<" + token + ">";
+		var codeLeftInx = expr.indexOf(startTag);
 		if (codeLeftInx !=-1){
 			var endTag = "</" + token + ">";
 			var codeRightInx = expr.indexOf(endTag);
@@ -58,34 +88,25 @@ class ViewMacro
 				var code = "";
 				if (codeLeftInx > 0){
 					var s = expr.substring(0, codeLeftInx);
-					var startChar = s.charAt(0);
-					var endChar = s.charAt(s.length - 1);
-					if (endChar == ";"&& (startChar == "'" || startChar == '"') &&pos>0){
-						code = '$s';
-					}
-					else{
-						s = StringTools.replace(s, "\r", "\\r");
-						s = StringTools.replace(s, "\n", "\\n");
-						s = StringTools.replace(s, "\t", "\\t");
-						s = StringTools.replace(s, '"', '\\"');
-						code = '"$s"';
-					}
+					s = StringTools.replace(s, '"', '\\"');
+					code = '"$s"';
 				}
 				var codeInx = Std.parseInt(expr.substring(codeLeftInx + token.length + 2, codeRightInx));
 				var block = codeBlocks[codeInx];
-				//trace(code);
 				switch(block){
 					case printBlock(s):
+						//trace(s);
 						code = code+(code.length == 0?"":"+") + '$s';
 					case literal(s):
+						//trace(s);
 						//s = StringTools.replace(s, "\r", "\\r");
 						//s = StringTools.replace(s, "\n", "\\n");
 						//s = StringTools.replace(s, "\t", "\\t");
 						//s = StringTools.replace(s, '"', '\\"');
 						code = code+(code.length == 0?"":"+") + '$s';
 					case codeBlock(s):
-						//trace(s);
 						//trace(code);
+						//trace(s);
 						if (variableChar.match(s)){//bind
 							if (binds == null) binds = [];
 							if (binds.indexOf(s) ==-1) binds.push(s);
@@ -94,6 +115,15 @@ class ViewMacro
 						else{
 							if (s.indexOf("for") == 0 || s.indexOf("while") == 0){
 								Context.error("can't use this expr at attribute value", Context.currentPos());
+							}
+							var lastCodeChar = code.length > 0?code.charAt(code.length - 1):"";
+							if (s.charAt(0) == "}"){
+								if (lastCodeChar == '"' || lastCodeChar == "'"){
+									code+= ";";
+								}
+								else if (code.length == 0){
+									code = '"";';
+								}
 							}
 							var isIf = s.indexOf("if") == 0;
 							if (isIf&&s.indexOf("if#") == 0){
@@ -121,9 +151,17 @@ class ViewMacro
 									}
 								}
 							}
-							var isEnclose = !isIf && (s.charAt(0) != "(" || s.charAt(s.length - 1) != ")");
+							//trace(code);
+							//trace(s);
+							var sStart = s.charAt(0);
+							var sEnd = s.charAt(s.length - 1);
+							var isEnclose = !isIf && (sStart != "(" && sEnd != ")" && sStart != "}" && sEnd != "{");
 							var codeEndChar = code.length > 0? code.charAt(code.length - 1):"";
-							code = code+((s.charAt(0) == "}" || s.charAt(s.length - 1) == "{")?(codeEndChar == '"' || codeEndChar == "'" || codeEndChar == "}"?"+":""):( code.length == 0?"":"+")) +(isEnclose?'($s)':'$s');
+							//trace(sStart);
+							//trace(sEnd);
+							//trace(isEnclose);
+							//trace(codeEndChar);
+							code = code+((sStart== "}" || sEnd== "{")?(codeEndChar == '"' || codeEndChar == "'" || codeEndChar == "}"?"+":""):( code.length == 0?"":"+")) +(isEnclose?'($s)':'$s');
 						}
 				}
 				//trace(code);
@@ -137,19 +175,26 @@ class ViewMacro
 						}
 					}
 					var s = nextExpr.v;
-					//trace(code);
-					//trace(s);
 					if (nextExpr.isCode){
 						var endChar = s.charAt(s.length - 1);
 						var startChar = s.charAt(0);
 						var codeEndChar = code.length > 0? code.charAt(code.length - 1):"";
-						code = code+(code.length == 0?"":( endChar == "}" || endChar == "{"?(((s.indexOf("if(") == 0 || s.indexOf("for(") == 0 || s.indexOf("while(") == 0) || ((startChar == "'" || startChar == '"') && codeEndChar != "{" ))?"+":""):"+")) + '$s';
+						//trace(code);
+						//trace(s);
+						code = code+
+						(code.length == 0?"":
+							(endChar == "}" || endChar == "{")?
+							(
+							((s.indexOf("if(") == 0 || s.indexOf("for(") == 0 || s.indexOf("while(") == 0) || ((startChar == "'" || startChar == '"') && codeEndChar != "{" ))?"+":""
+							)
+							:(StringTools.endsWith(code,"}else{")||StringTools.startsWith(code,"if(")?"":"+")
+						) + '$s';
 					}
 					else{
 						var endChar = code.charAt(code.length - 1);
 						//trace(code);
 						//trace(s);
-						code = code+( endChar == "}" || endChar == "{"?"": (code.length == 0?"":"+")) + '"$s"';
+						code = code+( endChar == "}" || endChar == "{"?"+": "") + '"$s"'; //(code.length == 0?"":"+")
 					}
 				}
 				//trace(code);
@@ -182,7 +227,7 @@ class ViewMacro
 				switch(block){
 					case printBlock(s):{
 						//trace(s);
-						var code = 'var __${nameId.id} = Txt(cast $s);con.appendChild(__${nameId.id});';
+						var code = 'var __${nameId.id} = Txt(this,cast $s);con.appendChild(__${nameId.id});';
 						nameId.id += 1;
 						return code;
 					};
@@ -200,7 +245,7 @@ class ViewMacro
 							s = StringTools.replace(s, "&amp;", "\u0026");
 							s = StringTools.replace(s, "&#64;", "\u0040");
 							s = StringTools.replace(s, "&#37;", "\u0025");
-							var code = 'var __${nameId.id} = Txt("$s");con.appendChild(__${nameId.id});';
+							var code = 'var __${nameId.id} = Txt(this,"$s");con.appendChild(__${nameId.id});';
 							nameId.id += 1;
 							return code;
 						}
@@ -209,7 +254,7 @@ class ViewMacro
 					case codeBlock(s):{
 						if (variableChar.match(s)){
 							var bindInfo = getFieldPathInfo(s);
-							var code = 'var __${nameId.id} = Txt(cast $s);con.appendChild(__${nameId.id});${bindInfo.scope}.bind("${bindInfo.field}", function(old,cur){__${nameId.id}.textContent = cur;});';
+							var code = 'var __${nameId.id} = Txt(this,cast $s);con.appendChild(__${nameId.id});bindM(this,cast ${bindInfo.scope},"${bindInfo.localScope}","${bindInfo.field}", function(cur){__${nameId.id}.textContent = cur;},${bindInfo.chains},${arrayStack.length>0?'${arrayStack[arrayStack.length - 1].indexVar},${arrayStack[arrayStack.length - 1].bindSource}':"-1"});';
 							nameId.id += 1;
 							return code;
 						}
@@ -218,30 +263,18 @@ class ViewMacro
 							var code = codeStack.pop();
 							//trace(code);
 							if (code.indexOf("for#") == 0){
-								var expInx = code.indexOf("(");
-								var for_s = "for" + code.substr(expInx);
-								var inInx = code.indexOf(" in ");
-								var argName = code.substring(expInx + 1, inInx);
-								var indexedInx = code.indexOf("...");
-								var bindSource = code.substring(inInx + 4, code.indexOf(")"));
-								if (indexedInx !=-1){
-									bindSource = bindSource.substr(bindSource.indexOf("...") + 3);
-									var lastDotInx = bindSource.lastIndexOf(".");
-									if (lastDotInx ==-1) Context.error("invalid bind source:" + code, Context.currentPos());
-									bindSource = bindSource.substring(0, lastDotInx);
-								}
-								if (!variableChar.match(bindSource))Context.error("invalid bind source:" + code, Context.currentPos());
-								var bindVar = code.substring(4, expInx);//.seq
-								var isClsBindVar = false;
-								if (StringTools.trim(bindVar).length == 0){
-									bindVar = '__bind_seq_${nameId.id}';
-								}
-								else if (bindVar.charAt(0) == "."){
-									isClsBindVar = true;
-									bindVar = bindVar.substr(1);
-								}
-								code = '${isClsBindVar?'if ($bindVar == null)$bindVar = []; ':'var $bindVar = []; '}var __tmp_l;$for_s var __tmp_con=__f_${codeStack.length+1}($argName); __tmp_l=[];while(__tmp_con.firstChild!=null){__tmp_l.push(con.appendChild(__tmp_con.firstChild));}$bindVar.push(__tmp_l);}bindSeq("$bindSource",$bindVar,__f_${codeStack.length+1},${indexedInx==-1?"false":"true"},con==localDoc?getRealRoot():con);';
-								return "return topCon;"+s+code;
+								var arrInfo = arrayStack.pop();
+								var for_s = arrInfo.exp;
+								var argName = arrInfo.indexName;
+								var bindSource = arrInfo.bindSource;
+								var isClsBindVar = arrInfo.isClsBindVar;
+								var bindVar = arrInfo.bindVar;
+								var isInxed = arrInfo.indexed;
+								var indexVar = arrInfo.indexVar;
+								var fn = arrInfo.fn;
+								var bindInfo = getFieldPathInfo(bindSource);
+								code = '${isClsBindVar?'if ($bindVar == null)$bindVar = []; ':'var $bindVar = []; '}${!isInxed?'var $indexVar = 0; ':""}var __tmp_l;$for_s var __tmp_con=$fn($argName,$indexVar); __tmp_l=[];while(__tmp_con.firstChild!=null){__tmp_l.push(con.appendChild(__tmp_con.firstChild));}$bindVar.push(__tmp_l);${!isInxed?'$indexVar++; ':""}}bindArr(this,$bindSource,"${bindInfo.localScope}",$bindVar,$fn,$isInxed,con,${arrayStack.length>0?'${arrayStack[arrayStack.length - 1].indexVar}':"-1"});';
+								return "return topCon;" + s + code;
 							}
 						}
 						if (s.charAt(s.length - 1) == "{"){
@@ -250,10 +283,34 @@ class ViewMacro
 						}
 						if (s.indexOf("for#") == 0){
 							var expInx = s.indexOf("(");
+							var for_s = "for" + s.substr(expInx);
 							var inInx = s.indexOf(" in ");
-							var argName = s.substring(expInx+1, inInx);
+							var argName = s.substring(expInx + 1, inInx);
+							
+							var indexedInx = s.indexOf("...");
+							var bindSource = s.substring(inInx + 4, s.indexOf(")"));
+							if (indexedInx !=-1){
+								bindSource = bindSource.substr(bindSource.indexOf("...") + 3);
+								var lastDotInx = bindSource.lastIndexOf(".");
+								if (lastDotInx ==-1) Context.error("invalid bind source:" + s, Context.currentPos());
+								bindSource = bindSource.substring(0, lastDotInx);
+							}
+							if (!variableChar.match(bindSource))Context.error("invalid bind source:" + s, Context.currentPos());
+							var bindVar = s.substring(4, expInx);
+							var isClsBindVar = false;
+							if (StringTools.trim(bindVar).length == 0){
+								bindVar = '__bind_seq_${nameId.id}';
+							}
+							else if (bindVar.charAt(0) == "."){
+								isClsBindVar = true;
+								bindVar = bindVar.substr(1);
+							}
+							var indexVar = indexedInx !=-1?argName:'__a_i_${nameId.id}';
+							var fn = '__a_fn_${nameId.id}';
+							arrayStack.push({exp:for_s, indexName:argName, indexVar:indexVar, fn:fn, bindSource:bindSource, indexed:indexedInx !=-1, isClsBindVar:isClsBindVar, bindVar:bindVar, id:nameId.id});
 							//保存当前容器
-							var code = 'var __f_${codeStack.length}=function($argName){var con:Dynamic = document.createDocumentFragment();var topCon=con;';
+							var code = 'var $fn=function($argName,$indexVar){var con:Dynamic = document.createDocumentFragment();var topCon=con;';
+							nameId.id += 1;
 							return code;
 						}
 						else if (s.indexOf("if#") == 0){
@@ -293,10 +350,10 @@ class ViewMacro
 									var onevent = attr.name.substr(2);
 									code+= '$varName.$onevent=$value;';
 									if (result.binds != null){
-										var bindFun = 'function(old,cur){$varName.$onevent=$value;}';
+										var bindFun = 'function(cur){$varName.$onevent=$value;}';
 										for (f in result.binds){
 											var bindInfo = getFieldPathInfo(f);
-											code+= '${bindInfo.scope}.bind("${bindInfo.field}",$bindFun);';
+											code+= 'bindM(this,cast ${bindInfo.scope},"${bindInfo.localScope}","${bindInfo.field}",$bindFun,${bindInfo.chains},${arrayStack.length>0?'${arrayStack[arrayStack.length - 1].indexVar},${arrayStack[arrayStack.length - 1].bindSource}':"-1"});';
 										}
 									}
 								}
@@ -311,17 +368,17 @@ class ViewMacro
 									}
 									//如果有绑定
 									if (result.binds != null){
-										var bindFun = 'function(old,cur){${result.isCode?'$varName.${attr.name}=$value;':'$varName.${attr.name}="$value";'}}';
+										var bindFun = 'function(cur){${result.isCode?'$varName.${attr.name}=$value;':'$varName.${attr.name}="$value";'}}';
 										for (f in result.binds){
 											var bindInfo = getFieldPathInfo(f);
-											code+= '${bindInfo.scope}.bind("${bindInfo.field}",$bindFun);';
+											code+= 'bindM(this,cast ${bindInfo.scope},"${bindInfo.localScope}","${bindInfo.field}",$bindFun,${bindInfo.chains},${arrayStack.length>0?'${arrayStack[arrayStack.length - 1].indexVar},${arrayStack[arrayStack.length - 1].bindSource}':"-1"});';
 										}
 									}
 								}
 							}
 						}
 					}
-					code+= '$varName.parent=this;$varName.attach(con);';
+					code+= 'this.add($varName,con);';//$varName.parent=this;$varName.attach(con);
 					nameId.id += 1;
 					return code;
 				}
@@ -341,10 +398,10 @@ class ViewMacro
 					var onlyStartCode = "";
 					var onlyEndCode = "";
 					if (isOnlyNode){
-						onlyStartCode = 'if(!hasOnlyNodeExist("$varName")){';
-						onlyEndCode = 'recordOnlyNode("$varName");}';
+						onlyStartCode = 'if(!hasOnlyNode(localClass,"$varName")){';
+						onlyEndCode = 'recordOnly(localClass,"$varName",$varName);}';
 					}
-					var code = '${hasChild?'var __prev${nameId.id} = con; ':""}${isClassVar?'if($varName==null)$varName':'var $varName'}=${isClassVar?"cast ":""}Ele("${node.name}"${isOnlyNode?",true":""});';
+					var code = '${hasChild?'var __prev${nameId.id} = con; ':""}${isClassVar?'if($varName==null)$varName':'var $varName'}=${isClassVar?"cast ":""}Ele(this,"${node.name}"${isOnlyNode?",localClass":""});';
 					if (hasAttr){
 						for (attr in node.attributes){
 							if (attr.name != "a-id"&&attr.name!="a-only"){
@@ -359,10 +416,10 @@ class ViewMacro
 									var onevent = attr.name.substr(2);
 									code+= '$varName.$onevent=$value;';
 									if (result.binds != null){
-										var bindFun = 'function(old,cur){$varName.$onevent=$value;}';
+										var bindFun = 'function(cur){$varName.$onevent=$value;}';
 										for (f in result.binds){
 											var bindInfo = getFieldPathInfo(f);
-											code+= '${bindInfo.scope}.bind("${bindInfo.field}",$bindFun);';
+											code+= 'bindM(this,cast ${bindInfo.scope},"${bindInfo.localScope}","${bindInfo.field}",$bindFun,${bindInfo.chains},${arrayStack.length>0?'${arrayStack[arrayStack.length - 1].indexVar},${arrayStack[arrayStack.length - 1].bindSource}':"-1"});';
 										}
 									}
 								}else{
@@ -373,17 +430,22 @@ class ViewMacro
 										code+= '$varName.setAttribute("${attr.name}",cast $value);';
 									}
 									if (result.binds != null){
-										var bindFun = 'function(old,cur){$varName.setAttribute("${attr.name}",cast $value);}';
+										var bindFun = 'function(cur){$varName.setAttribute("${attr.name}",cast $value);}';
 										for (f in result.binds){
 											var bindInfo = getFieldPathInfo(f);
-											code+= '${bindInfo.scope}.bind("${bindInfo.field}",$bindFun);';
+											code+= 'bindM(this,cast ${bindInfo.scope},"${bindInfo.localScope}","${bindInfo.field}",$bindFun,${bindInfo.chains},${arrayStack.length>0?'${arrayStack[arrayStack.length - 1].indexVar},${arrayStack[arrayStack.length - 1].bindSource}':"-1"});';
 										}
 									}
 								}
 							}
 						}
 					}
-					code+= 'con.appendChild($varName);';
+					if (isOnlyNode&&(node.name == "script" || node.name == "style")){
+						code+= 'document.head.appendChild($varName);';
+					}
+					else{
+						code+= 'con.appendChild($varName);';
+					}
 					if (hasChild) code+= 'con=$varName;';
 					var cid = nameId.id;
 					nameId.id += 1;
@@ -424,12 +486,12 @@ class ViewMacro
 					s = StringTools.replace(s, "&#64;", "\u0040");
 					s = StringTools.replace(s, "&#37;", "\u0025");
 				}
-				var code = 'var __${nameId.id} =Txt(${isCode?s:'"$s"'});con.appendChild(__${nameId.id});';
+				var code = 'var __${nameId.id} =Txt(this,${isCode?s:'"$s"'});con.appendChild(__${nameId.id});';
 				if (binds != null){
-					var bindFun = 'function(old,cur){__${nameId.id}.textContent=$s;}';
+					var bindFun = 'function(cur){__${nameId.id}.textContent=$s;}';
 					for (f in binds){
 						var bindInfo = getFieldPathInfo(f);
-						code+= '${bindInfo.scope}.bind("${bindInfo.field}",$bindFun);';
+						code+= 'bindM(this,cast ${bindInfo.scope},"${bindInfo.localScope}","${bindInfo.field}",$bindFun,${bindInfo.chains},${arrayStack.length>0?'${arrayStack[arrayStack.length - 1].indexVar},${arrayStack[arrayStack.length - 1].bindSource}':"-1"});';
 					}
 				}
 				nameId.id += 1;
@@ -444,8 +506,8 @@ class ViewMacro
 		var fullPath = cwd + path;
 		var content = File.getContent(fullPath);
 		//content=Utf8.encode(content);
-		var className = Context.getLocalClass().toString();
-		className = StringTools.replace(className, ".", "-");
+		var localClass = Context.getLocalClass().toString();
+		var className = StringTools.replace(localClass, ".", "-");
 		content = StringTools.replace(content, "%class%", className);
 		var parsedBlocks = new Parser().parse(content);
 		//trace(parsedBlocks);
@@ -474,10 +536,27 @@ class ViewMacro
 		var htmlNodes = HtmlParser.run(content);
 		//trace(htmlNodes);		
 		var func:Function = {args:[], ret:null, expr:null};
-		var code = "super.render();var window=js.Browser.window;var document = window.document;var location=js.Browser.location;var navigator=js.Browser.navigator;var console=js.Browser.console;var con=localDoc;";
+		var code = 'super.render();var window=js.Browser.window;var document = window.document;var con=localDoc;var localClass="$localClass";var className="$className";';
 		var nameId = {id:0};
 		for (node in htmlNodes){
 			code+= parseNode(codeBlocks, node, token, nameId);
+		}
+		//简单优化
+		var opFun = function(re:EReg)
+		{
+			var s = re.matched(0).split(";")[1] + ";";
+			if (StringTools.endsWith(code,s)) return "";
+			return s;
+		}
+		while (preConExpr.match(code)){
+			code = preConExpr.map(code, opFun);
+		}
+		var inx = code.lastIndexOf(";", code.length - 2);
+		if (inx !=-1){
+			var s = code.substring(inx + 1);
+			if (reConExpr.match(s)){
+				code = code.substring(0, inx + 1);
+			}
 		}
 		//trace(code);
 		func.expr = Context.parseInlineString("{"+code+"}", Context.currentPos());
