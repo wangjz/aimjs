@@ -15,7 +15,7 @@ abstract BindArray<T>(ArrayModel<T>)
 		this = new ArrayModel(a);
 	}
 	
-	public function pop():T
+	public function pop():Null<T>
 	{
 		if (this.arr.length == 0) return null;
 		var v = this.arr.pop();
@@ -111,7 +111,7 @@ abstract BindArray<T>(ArrayModel<T>)
 		};
 	}
 	
-	function getBindProps(com:Component):Array<{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Node, inArrInx:Int,path:String}>
+	function getBindProps(com:Component):Array<{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Dynamic, inArrInx:Int,path:String}>
 	{
 		var fields = this._a_fields;
 		if (fields == null) return null;
@@ -151,7 +151,7 @@ abstract BindArray<T>(ArrayModel<T>)
 		}
 	}
 	
-	function onPop(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Node, inArrInx:Int}, v:Dynamic,index:Int):Void
+	function onPop(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Dynamic, inArrInx:Int}, v:Dynamic,index:Int):Void
 	{
 		Model.clearArrayBind(com,cast this, index);
 		var nodes = prop.nodes.pop();
@@ -164,12 +164,12 @@ abstract BindArray<T>(ArrayModel<T>)
 		}
 	}
 	
-	function onPush(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Node, inArrInx:Int},index:Int,v:Dynamic):Void
+	function onPush(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Dynamic, inArrInx:Int},index:Int,v:Dynamic):Void
 	{
 		var nodes = prop.nodes;
 		var func = prop.func;
 		var isInx = prop.isIndex;
-		var parent = prop.parent.parentNode == null? Component.getOwnComponent(prop.parent).getAttachContainer():prop.parent;
+		var parent = prop.parent;// prop.parent.parentNode == null? Component.getOwnComponent(prop.parent).getAttachContainer():prop.parent;
 		if (nodes == null){
 			nodes = [];
 			prop.nodes = nodes;
@@ -182,7 +182,7 @@ abstract BindArray<T>(ArrayModel<T>)
 		nodes.push(tmps);
 	}
 	
-	function onReverse(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Node, inArrInx:Int}):Void
+	function onReverse(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Dynamic, inArrInx:Int}):Void
 	{
 		var len = this.length - 1;
 		if (com._binds != null){
@@ -229,7 +229,7 @@ abstract BindArray<T>(ArrayModel<T>)
 		}
 	}
 	
-	function onShift(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Node, inArrInx:Int},value:Dynamic):Void
+	function onShift(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Dynamic, inArrInx:Int},value:Dynamic):Void
 	{
 		Model.clearArrayBind(com, cast this, 0);
 		if (com._binds != null){
@@ -255,7 +255,7 @@ abstract BindArray<T>(ArrayModel<T>)
 		}
 	}
 	
-	function onSplice(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Node, inArrInx:Int},pos:Int, len:Int, v:Array<Dynamic>,srcLen:Int):Void
+	function onSplice(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Dynamic, inArrInx:Int},pos:Int, len:Int, v:Array<Dynamic>,srcLen:Int):Void
 	{
 		if (v.length > 0){
 			if (pos < 0){
@@ -292,7 +292,7 @@ abstract BindArray<T>(ArrayModel<T>)
 		}
 	}
 	
-	function onUnshift(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Node, inArrInx:Int},x:Dynamic):Void
+	function onUnshift(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Dynamic, inArrInx:Int},x:Dynamic):Void
 	{
 		if (com._binds != null){
 			var keys = com._binds.keys();
@@ -315,7 +315,7 @@ abstract BindArray<T>(ArrayModel<T>)
 		var isInx = prop.isIndex;
 		var con = func(isInx?0:x, 0);
 		var firstNode = _list.length == 0? null:_list[0][0];
-		var parent = firstNode != null?firstNode.parentNode: (prop.parent.parentNode == null? Component.getOwnComponent(prop.parent).getAttachContainer():prop.parent);
+		var parent = firstNode != null?firstNode.parentNode:prop.parent;// (prop.parent.parentNode == null? Component.getOwnComponent(prop.parent).getAttachContainer():prop.parent);
 		var tmp = [];
 		while (con.firstChild != null){
 			tmp.push(parent.insertBefore(con.firstChild, firstNode));
@@ -323,7 +323,7 @@ abstract BindArray<T>(ArrayModel<T>)
 		_list.unshift(tmp);
 	}
 	
-	function onInsert(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Node, inArrInx:Int},pos:Int,x:Dynamic):Void
+	function onInsert(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Dynamic, inArrInx:Int},pos:Int,x:Dynamic):Void
 	{
 		var srcLen = this.length - 1;
 		if (pos < 0){
@@ -355,7 +355,7 @@ abstract BindArray<T>(ArrayModel<T>)
 		var con = func(isInx?pos:x, pos);
 		var posNodes = _list[pos];
 		var posNode = posNodes == null || posNodes.length == 0?null: _list[pos][0];
-		var parent = posNode != null?posNode.parentNode: (prop.parent.parentNode == null? Component.getOwnComponent(prop.parent).getAttachContainer():prop.parent);
+		var parent = posNode != null?posNode.parentNode: prop.parent; //(prop.parent.parentNode == null? Component.getOwnComponent(prop.parent).getAttachContainer():prop.parent)
 		var tmp = [];
 		while (con.firstChild != null){
 			tmp.push(parent.insertBefore(con.firstChild, posNode));
@@ -363,7 +363,7 @@ abstract BindArray<T>(ArrayModel<T>)
 		_list.insert(pos, tmp);
 	}
 	
-	function onRemove(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Node, inArrInx:Int},inx:Int,x:Dynamic):Void
+	function onRemove(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Dynamic, inArrInx:Int},inx:Int,x:Dynamic):Void
 	{
 		Model.clearArrayBind(com, cast this, inx);
 		if (com._binds != null&&inx<this.length-1){
@@ -390,7 +390,7 @@ abstract BindArray<T>(ArrayModel<T>)
 		}
 	}
 	
-	function onSet(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Node, inArrInx:Int},index:Int,old:Dynamic,cur:Dynamic):Void
+	function onSet(com:Component,prop:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Dynamic, inArrInx:Int},index:Int,old:Dynamic,cur:Dynamic):Void
 	{
 		if (com._binds != null){
 			var keys = com._binds.keys();
@@ -436,27 +436,4 @@ abstract BindArray<T>(ArrayModel<T>)
 		return this;
 	}
 	*/
-}
-
-@:allow(aimjs.BindArray,aimjs.Model)
-class ArrayModel<T> extends Model
-{
-	@:isVar
-	var _a_fields:Array<{id:Int,keys:Array<String>}>=null;
-	
-	@:isVar
-	var arr:Array<T> = null;
-	
-	@:isVar
-	public var length(get, null):Int;
-	function new(a:Array<T>)
-	{
-		arr = a == null?new Array<T>():a;
-		length = a.length;
-	}
-	
-	function get_length():Int
-	{
-		return arr.length;
-	}
 }

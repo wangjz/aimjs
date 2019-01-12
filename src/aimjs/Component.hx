@@ -2,6 +2,8 @@ package aimjs;
 import haxe.Constraints.Function;
 import haxe.DynamicAccess;
 import js.Browser;
+import js.html.CSSStyleDeclaration;
+import js.html.CSSStyleSheet;
 import js.html.Node;
 import js.html.Text;
 import js.html.Element;
@@ -10,16 +12,18 @@ import js.Lib;
  * ...
  * @author wangjz
  */
-@:allow(aimjs.Model,aimjs.BindArray)
+@:allow(aimjs.Model,aimjs.BindArray,aimjs.Slot)
 class Component extends Model implements IEventDispatcher
 {
 	static var __obj_id = 0;
 	var objectId = 0;
-	var isAttached = false;
+	@:isVar
+	public var isAttached(default, null) = false;
 	var localDoc:Node;
 	var _doc:Dynamic;
 	var doc(get, set):Dynamic;
-	public var container(default, default):Node;
+	@:isVar
+	public var container(default, null):Node;
 	public var parent(default, null):Component;
 	public var childs(default, null):ComponentList;
 	private static var __tags:DynamicAccess<Void->Component>;
@@ -30,8 +34,7 @@ class Component extends Model implements IEventDispatcher
 	var __events:DynamicAccess<Array<{priority:Int,handle:haxe.Constraints.Function}>>;
 	
 	var _binds:DynamicAccess<{model:Model,path:String,paths:Array<String>, field:String, fn:Function,chains:Array<Dynamic>,inArrInx:Int,array:BindArray<Dynamic>}> = null;
-	var _arr_binds:DynamicAccess<{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Node, inArrInx:Int,path:String} >= null;
-	
+	var _arr_binds:DynamicAccess<{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Dynamic, inArrInx:Int,path:String} >= null;
 	@:isVar
 	var bindM:Function;
 	@:isVar
@@ -41,9 +44,11 @@ class Component extends Model implements IEventDispatcher
 	@:isVar
 	var recordOnly:Function;
 	@:isVar
-	var Txt:Component->String->Text;
+	var Txt:String->Text;
 	@:isVar
-	var Ele:Component->String->?String->Element;
+	var Ele:String->?String->Element;
+	@:isVar
+	public var visible(default, set):Bool = true;
 	static function __init__()
 	{
 		__tags = new DynamicAccess();
@@ -64,8 +69,8 @@ class Component extends Model implements IEventDispatcher
 		bindArr = bindArray;
 		hasOnlyNode = hasOnlyNodeExist;
 		recordOnly = recordOnlyNode;
-		Txt = newTxt;
-		Ele = newEle;
+		Txt = _Txt;
+		Ele = _Ele;
 	}
 	
 	public inline static function localClassName()
@@ -111,7 +116,10 @@ class Component extends Model implements IEventDispatcher
 	
 	public function attach(root:Node)
 	{
-		if (isAttached) unattach();
+		if (isAttached){
+			if (root == container) return;
+			unattach();
+		}
 		container = root;
 		var _ready = null;
 		if (_doc == null){
@@ -122,7 +130,6 @@ class Component extends Model implements IEventDispatcher
 			onViewInit();
 			_ready = onReady;
 		}
-		
 		for (child in childs){
 			if (child.container.parentNode == null || child.container == this.container) child.attach(child.container);
 		}
@@ -154,6 +161,41 @@ class Component extends Model implements IEventDispatcher
 		doc = localDoc;
 	}
 	
+	function set_visible(v:Bool):Bool
+	{
+		if (v == visible) return v;
+		if (isAttached == false) return v;
+		if (onPropertyChange("visible", visible, v)){
+			var nodes = getAttachContainer().childNodes;
+			for (node in nodes){
+				if (node.nodeName == "STYLE") continue;
+				if (untyped node.style != Lib.undefined && untyped node.__aim_objid == objectId){
+					var style:CSSStyleDeclaration = untyped node.style;
+					if (v){
+						if (untyped node.__aim_display != Lib.undefined){
+							style.setProperty("display",untyped node.__aim_display);
+							untyped __js__("delete {0}.__aim_display", node);
+						}
+					}
+					else{
+						var css = style.getPropertyValue("display");
+						if ( css != "none"){
+							style.setProperty("display", "none");
+							untyped node.__aim_display = css;
+						}
+					}
+				}
+			}
+			for (child in childs){
+				child.visible = v;
+			}
+			var old = visible;
+			visible = v;
+			aimjs.Model.onNewValue(this, "visible", old, v);
+			return v;
+		}
+		return visible;
+	}
 	/*
 	public function destroyAll()
 	{
@@ -196,6 +238,20 @@ class Component extends Model implements IEventDispatcher
 		//__com_counts[localClsName] -= 1;
 	}
 	
+	public function appendChild(child:Dynamic):Dynamic
+	{
+		var con = getAttachContainer();
+		if (Std.is(child, Component)){
+			return add(child, con);
+		}
+		else{
+			if (child.__aim_cls == Lib.undefined){
+				child.__aim_objid = objectId;
+			}
+			return con.appendChild(child);
+		}
+	}
+	
 	public function add(child:Component,?attachTo:Node=null):Component
 	{
 		child.attach(attachTo == null?container:attachTo);
@@ -212,6 +268,25 @@ class Component extends Model implements IEventDispatcher
 			child.unattach();
 		}
 		return b?child:null;
+	}
+	
+	public function createText(data : String):Text
+	{
+		var text = Browser.document.createTextNode(data);
+		untyped text.__aim_objid = objectId;
+		return text;
+	}
+	
+	public function createElement(localName : String,?className:String=null): Element
+	{
+		var ele = Browser.document.createElement(localName);
+		if (className!=null) {
+			untyped ele.__aim_cls = className;
+		}
+		else{
+			untyped ele.__aim_objid = objectId;
+		}
+		return ele;
 	}
 	
 	function render(){
@@ -413,24 +488,19 @@ class Component extends Model implements IEventDispatcher
 	}
 	
 	static function getObjectId(node:Node):Int{
-		return untyped node.__aim_objid;
+		var objId = untyped node.__aim_objid;
+		return objId == Lib.undefined?0:objId;
 	}
 	
-	static function newTxt(com:Component,data : String):Text
-	{
-		var text = Browser.document.createTextNode(data);
-		untyped text.__aim_objid = com.objectId;
-		return text;
+	static function _Txt(data : String):Text{
+		return Browser.document.createTextNode(data);
 	}
 	
-	static function newEle(com:Component,localName : String,?className:String=null): Element
+	static function _Ele(localName : String,?className:String=null):Element
 	{
 		var ele = Browser.document.createElement(localName);
-		if (className!=null) {
+		if (className != null) {
 			untyped ele.__aim_cls = className;
-		}
-		else{
-			untyped ele.__aim_objid = com.objectId;
 		}
 		return ele;
 	}

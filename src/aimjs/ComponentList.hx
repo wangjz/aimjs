@@ -6,7 +6,7 @@ package aimjs;
  */
 @:forward(length, indexOf, toString, iterator, map, filter, get)
 @:allow(aimjs.Component)
-abstract ComponentList(BindArray<Component>) //from Array<Component>
+abstract ComponentList(BindArray<Component>)
 {
 	inline public function new(a:Array<Component>) 
 	{

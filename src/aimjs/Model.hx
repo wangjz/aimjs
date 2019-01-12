@@ -22,7 +22,7 @@ class Model
 	static function onListNewValue(m:Model,f:String,old:Dynamic,cur:Dynamic)
 	{
 		if (old == null) return;
-		old.onUpdate(function(com:Component,v:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Node, inArrInx:Int},cur:BindArray<Dynamic>){
+		old.onUpdate(function(com:Component,v:{nodes:Array<Array<Node>>, func:Dynamic->Int->Dynamic, isIndex:Bool, parent:Dynamic, inArrInx:Int},cur:BindArray<Dynamic>){
 			var nodes = v.nodes;
 			if (nodes != null && nodes.length > 0){
 				for (_nodes in nodes){
