@@ -227,7 +227,7 @@ class ViewMacro
 				switch(block){
 					case printBlock(s):{
 						//trace(s);
-						var code = 'var __${nameId.id} = Txt(this,cast $s);con.appendChild(__${nameId.id});';
+						var code = 'var __${nameId.id} = Txt(cast $s);con.appendChild(__${nameId.id});';//Txt(this,cast $s)
 						nameId.id += 1;
 						return code;
 					};
@@ -245,7 +245,7 @@ class ViewMacro
 							s = StringTools.replace(s, "&amp;", "\u0026");
 							s = StringTools.replace(s, "&#64;", "\u0040");
 							s = StringTools.replace(s, "&#37;", "\u0025");
-							var code = 'var __${nameId.id} = Txt(this,"$s");con.appendChild(__${nameId.id});';
+							var code = 'var __${nameId.id} = Text("$s");con.appendChild(__${nameId.id});';//Txt(this,"$s")
 							nameId.id += 1;
 							return code;
 						}
@@ -254,7 +254,8 @@ class ViewMacro
 					case codeBlock(s):{
 						if (variableChar.match(s)){
 							var bindInfo = getFieldPathInfo(s);
-							var code = 'var __${nameId.id} = Txt(this,cast $s);con.appendChild(__${nameId.id});bindM(this,cast ${bindInfo.scope},"${bindInfo.localScope}","${bindInfo.field}", function(cur){__${nameId.id}.textContent = cur;},${bindInfo.chains},${arrayStack.length>0?'${arrayStack[arrayStack.length - 1].indexVar},${arrayStack[arrayStack.length - 1].bindSource}':"-1"});';
+							//Txt(this,cast $s)
+							var code = 'var __${nameId.id} = Txt(cast $s);con.appendChild(__${nameId.id});bindM(this,cast ${bindInfo.scope},"${bindInfo.localScope}","${bindInfo.field}", function(cur){__${nameId.id}.textContent = cur;},${bindInfo.chains},${arrayStack.length>0?'${arrayStack[arrayStack.length - 1].indexVar},${arrayStack[arrayStack.length - 1].bindSource}':"-1"});';
 							nameId.id += 1;
 							return code;
 						}
@@ -324,75 +325,91 @@ class ViewMacro
 				}
 			}else{
 				if (node.name.indexOf(":") !=-1){
+					var hasChild = node.nodes != null && node.nodes.length > 0;
 					var hasAttr = node.attributes != null && node.attributes.length > 0;
 					var varName = "__" +nameId.id;
 					var isClassVar = false;
-					if (hasAttr && node.hasAttribute("a-id")){
-						varName = node.getAttribute("a-id");
+					if (hasAttr && node.hasAttribute("a-var")){
+						varName = node.getAttribute("a-var");
 						if (varName.indexOf(".") == 0){
 							isClassVar = true;
 							varName = varName.substr(1);
 						}
 					}
-					var code = '${isClassVar?'if($varName==null)$varName':'var $varName'}=aimjs.Component.createComponent("${node.name}");';
+					var code = '${hasChild?'var __prev${nameId.id} = con;':""}${isClassVar?'if($varName==null)$varName':'var $varName'}=cast aimjs.Component.createComponent("${node.name}");';
 					if (hasAttr){
 						for (attr in node.attributes){
-							if (attr.name != "a-id"&&attr.name!="a-only"){
-								var value = attr.value;
-								if (value == null){
-									//code+= '$varName.setAttribute("${attr.name}","");';
-									code+= '$varName.${attr.name}=null;';
-									continue;
-								}
-								var result = parseAttributeExpr(codeBlocks, value, token);
-								value = result.v;
-								if (attr.name.indexOf("a-on") == 0&&attr.name.length>4){
-									var onevent = attr.name.substr(2);
-									code+= '$varName.$onevent=$value;';
-									if (result.binds != null){
-										var bindFun = 'function(cur){$varName.$onevent=$value;}';
-										for (f in result.binds){
-											var bindInfo = getFieldPathInfo(f);
-											code+= 'bindM(this,cast ${bindInfo.scope},"${bindInfo.localScope}","${bindInfo.field}",$bindFun,${bindInfo.chains},${arrayStack.length>0?'${arrayStack[arrayStack.length - 1].indexVar},${arrayStack[arrayStack.length - 1].bindSource}':"-1"});';
-										}
+							if (attr.name.indexOf("a-") == 0 && (attr.name == "a-var" || attr.name == "a-only" || attr.name == "a-to")) continue;
+							var value = attr.value;
+							if (value == null){
+								//code+= '$varName.setAttribute("${attr.name}","");';
+								code+= '$varName.${attr.name}=null;';
+								continue;
+							}
+							var result = parseAttributeExpr(codeBlocks, value, token);
+							value = result.v;
+							if (attr.name.indexOf("a-on") == 0&&attr.name.length>4){
+								var onevent = attr.name.substr(2);
+								code+= '$varName.$onevent=$value;';
+								if (result.binds != null){
+									var bindFun = 'function(cur){$varName.$onevent=$value;}';
+									for (f in result.binds){
+										var bindInfo = getFieldPathInfo(f);
+										code+= 'bindM(this,cast ${bindInfo.scope},"${bindInfo.localScope}","${bindInfo.field}",$bindFun,${bindInfo.chains},${arrayStack.length>0?'${arrayStack[arrayStack.length - 1].indexVar},${arrayStack[arrayStack.length - 1].bindSource}':"-1"});';
 									}
+								}
+							}
+							else{
+								if (result.isCode == false){
+									//code+= '$varName.setAttribute("${attr.name}","$value");';
+									code+= '$varName.${attr.name}="$value";';
 								}
 								else{
-									if (result.isCode == false){
-										//code+= '$varName.setAttribute("${attr.name}","$value");';
-										code+= '$varName.${attr.name}="$value";';
-									}
-									else{
-										//code+= '$varName.setAttribute("${attr.name}",$value);';
-										code+= '$varName.${attr.name}=$value;';
-									}
-									//如果有绑定
-									if (result.binds != null){
-										var bindFun = 'function(cur){${result.isCode?'$varName.${attr.name}=$value;':'$varName.${attr.name}="$value";'}}';
-										for (f in result.binds){
-											var bindInfo = getFieldPathInfo(f);
-											code+= 'bindM(this,cast ${bindInfo.scope},"${bindInfo.localScope}","${bindInfo.field}",$bindFun,${bindInfo.chains},${arrayStack.length>0?'${arrayStack[arrayStack.length - 1].indexVar},${arrayStack[arrayStack.length - 1].bindSource}':"-1"});';
-										}
+									//code+= '$varName.setAttribute("${attr.name}",$value);';
+									code+= '$varName.${attr.name}=cast $value;';
+								}
+								//如果有绑定
+								if (result.binds != null){
+									var bindFun = 'function(cur){${result.isCode?'$varName.${attr.name}=$value;':'$varName.${attr.name}="$value";'}}';
+									for (f in result.binds){
+										var bindInfo = getFieldPathInfo(f);
+										code+= 'bindM(this,cast ${bindInfo.scope},"${bindInfo.localScope}","${bindInfo.field}",$bindFun,${bindInfo.chains},${arrayStack.length>0?'${arrayStack[arrayStack.length - 1].indexVar},${arrayStack[arrayStack.length - 1].bindSource}':"-1"});';
 									}
 								}
 							}
 						}
 					}
-					code+= 'this.add($varName,con);';//$varName.parent=this;$varName.attach(con);
+					//code+= 'this.add($varName,con);';
+					code+= 'con.appendChild($varName);';
+					if (hasChild) code+= 'con=$varName;';
+					var cid = nameId.id;
 					nameId.id += 1;
+					if (hasChild){
+						for (chidren in node.nodes){
+							code+= parseNode(codeBlocks, chidren, token, nameId);
+						}
+					}
+					if(hasChild)code+= 'con=__prev$cid;';
 					return code;
+					//nameId.id += 1;
+					//return code;
 				}
 				else{
 					var hasChild = node.nodes != null && node.nodes.length > 0;
 					var hasAttr = node.attributes != null && node.attributes.length > 0;
+					var isSlot = node.name == "slot";
 					var varName = "__" +nameId.id;
+					if (isSlot){
+						if (hasAttr == false || node.hasAttribute("a-to") == false) Context.error("slot need target name,please set a-to attr", Context.currentPos());
+						varName = node.getAttribute("a-to");
+					}
 					var isClassVar = false;
-					if (hasAttr && node.hasAttribute("a-id")){
-						varName = node.getAttribute("a-id");
-						if (varName.indexOf(".") == 0){
-							isClassVar = true;
-							varName = varName.substr(1);
-						}
+					if (hasAttr && node.hasAttribute("a-var")){
+						varName = node.getAttribute("a-var");
+					}
+					if (varName.indexOf(".") == 0){
+						isClassVar = true;
+						varName = varName.substr(1);
 					}
 					var isOnlyNode = node.hasAttribute("a-only");
 					var onlyStartCode = "";
@@ -401,40 +418,46 @@ class ViewMacro
 						onlyStartCode = 'if(!hasOnlyNode(localClass,"$varName")){';
 						onlyEndCode = 'recordOnly(localClass,"$varName",$varName);}';
 					}
-					var code = '${hasChild?'var __prev${nameId.id} = con; ':""}${isClassVar?'if($varName==null)$varName':'var $varName'}=${isClassVar?"cast ":""}Ele(this,"${node.name}"${isOnlyNode?",localClass":""});';
+					var code = "";
+					if (isSlot){
+						code = '${hasChild?'var __prev${nameId.id} = con; var __${nameId.id} = untyped $varName; ':""}';
+						varName = "__" +nameId.id;
+					}
+					else{
+						code = '${hasChild?'var __prev${nameId.id} = con;':""}${isClassVar?'if($varName==null)$varName':'var $varName'}=${isClassVar?"cast ":""}Ele("${node.name}"${isOnlyNode?",localClass":""});';//Ele(this,"${node.name}"${isOnlyNode?",localClass":""})
+					}
 					if (hasAttr){
 						for (attr in node.attributes){
-							if (attr.name != "a-id"&&attr.name!="a-only"){
-								var value = attr.value;
-								if (value == null){
-									code+= '$varName.setAttribute("${attr.name}","");';
-									continue;
+							if (attr.name.indexOf("a-") == 0 && ( attr.name == "a-var" || attr.name == "a-only" || attr.name == "a-to")) continue;
+							var value = attr.value;
+							if (value == null){
+								code+= '$varName.setAttribute("${attr.name}","");';
+								continue;
+							}
+							var result = parseAttributeExpr(codeBlocks, value, token);
+							value = result.v;
+							if (attr.name.indexOf("a-on") == 0&&attr.name.length>4){
+								var onevent = attr.name.substr(2);
+								code+= '$varName.$onevent=$value;';
+								if (result.binds != null){
+									var bindFun = 'function(cur){$varName.$onevent=$value;}';
+									for (f in result.binds){
+										var bindInfo = getFieldPathInfo(f);
+										code+= 'bindM(this,cast ${bindInfo.scope},"${bindInfo.localScope}","${bindInfo.field}",$bindFun,${bindInfo.chains},${arrayStack.length>0?'${arrayStack[arrayStack.length - 1].indexVar},${arrayStack[arrayStack.length - 1].bindSource}':"-1"});';
+									}
 								}
-								var result = parseAttributeExpr(codeBlocks, value, token);
-								value = result.v;
-								if (attr.name.indexOf("a-on") == 0&&attr.name.length>4){
-									var onevent = attr.name.substr(2);
-									code+= '$varName.$onevent=$value;';
-									if (result.binds != null){
-										var bindFun = 'function(cur){$varName.$onevent=$value;}';
-										for (f in result.binds){
-											var bindInfo = getFieldPathInfo(f);
-											code+= 'bindM(this,cast ${bindInfo.scope},"${bindInfo.localScope}","${bindInfo.field}",$bindFun,${bindInfo.chains},${arrayStack.length>0?'${arrayStack[arrayStack.length - 1].indexVar},${arrayStack[arrayStack.length - 1].bindSource}':"-1"});';
-										}
-									}
-								}else{
-									if (result.isCode == false){
-										code+= '$varName.setAttribute("${attr.name}","$value");';
-									}
-									else{
-										code+= '$varName.setAttribute("${attr.name}",cast $value);';
-									}
-									if (result.binds != null){
-										var bindFun = 'function(cur){$varName.setAttribute("${attr.name}",cast $value);}';
-										for (f in result.binds){
-											var bindInfo = getFieldPathInfo(f);
-											code+= 'bindM(this,cast ${bindInfo.scope},"${bindInfo.localScope}","${bindInfo.field}",$bindFun,${bindInfo.chains},${arrayStack.length>0?'${arrayStack[arrayStack.length - 1].indexVar},${arrayStack[arrayStack.length - 1].bindSource}':"-1"});';
-										}
+							}else{
+								if (result.isCode == false){
+									code+= '$varName.setAttribute("${attr.name}","$value");';
+								}
+								else{
+									code+= '$varName.setAttribute("${attr.name}",cast $value);';
+								}
+								if (result.binds != null){
+									var bindFun = 'function(cur){$varName.setAttribute("${attr.name}",cast $value);}';
+									for (f in result.binds){
+										var bindInfo = getFieldPathInfo(f);
+										code+= 'bindM(this,cast ${bindInfo.scope},"${bindInfo.localScope}","${bindInfo.field}",$bindFun,${bindInfo.chains},${arrayStack.length>0?'${arrayStack[arrayStack.length - 1].indexVar},${arrayStack[arrayStack.length - 1].bindSource}':"-1"});';
 									}
 								}
 							}
@@ -486,7 +509,8 @@ class ViewMacro
 					s = StringTools.replace(s, "&#64;", "\u0040");
 					s = StringTools.replace(s, "&#37;", "\u0025");
 				}
-				var code = 'var __${nameId.id} =Txt(this,${isCode?s:'"$s"'});con.appendChild(__${nameId.id});';
+				//Txt(this,${isCode?s:'"$s"'})
+				var code = 'var __${nameId.id} =Txt(${isCode?s:'"$s"'});con.appendChild(__${nameId.id});';
 				if (binds != null){
 					var bindFun = 'function(cur){__${nameId.id}.textContent=$s;}';
 					for (f in binds){
@@ -536,7 +560,7 @@ class ViewMacro
 		var htmlNodes = HtmlParser.run(content);
 		//trace(htmlNodes);		
 		var func:Function = {args:[], ret:null, expr:null};
-		var code = 'super.render();var window=js.Browser.window;var document = window.document;var con=localDoc;var localClass="$localClass";var className="$className";';
+		var code = 'super.render();var window=js.Browser.window;var document = window.document;var localClass="$localClass";var con:aimjs.Slot=this;';
 		var nameId = {id:0};
 		for (node in htmlNodes){
 			code+= parseNode(codeBlocks, node, token, nameId);
